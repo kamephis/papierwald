@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Interaktive 3D-Visualisierung: Wie viele Bäume kostet gedrucktes Papier?">
+<title>Papierwald</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Manrope:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: the WebGL forest is the full-bleed stage; one floating control panel (left column on desktop, bottom sheet on phones), a compact HUD top-right and a species legend bottom-right. */
+:root{
+  --bg:#e7ede3; --fg:#172119; --muted:#5a6b5f; --line:rgba(23,33,25,.13);
+  --panel:rgba(250,252,248,.78); --panel-strong:#fbfcf9;
+  --accent:#1f6f46; --accent-soft:rgba(31,111,70,.22); --accent-ink:#ffffff; --warn:#b4571f;
+  --sky-top:#c6dcea; --sky-bottom:#e9eee6; --fog:#e2e9dc;
+  --ground:#7ea862; --trunk:#6b4a2e; --birch:#e6e2d5; --stump:#8c6a44;
+  --leaf-spruce:#2d6a3e; --leaf-pine:#3e7d56; --leaf-birch:#86b24a;
+  --sun:#fff3d6; --sun-intensity:1.15; --hemi-sky:#dce9f6; --hemi-ground:#6c9256; --hemi-intensity:.6;
+  --printer:#e2e6e9; --printer-dark:#363d42; --tray:#c6cbcf; --paper:#fbfbf6; --led:#2fd27c; --ring:#1f6f46;
+  --font-display:"Bricolage Grotesque","Segoe UI",system-ui,sans-serif;
+  --font-body:"Manrope","Segoe UI",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0e1714; --fg:#e7eee8; --muted:#97a79c; --line:rgba(231,238,232,.14);
+    --panel:rgba(13,22,19,.74); --panel-strong:#13201b;
+    --accent:#7fd6a0; --accent-soft:rgba(127,214,160,.26); --accent-ink:#0b1a12; --warn:#f0a05a;
+    --sky-top:#07111c; --sky-bottom:#14252c; --fog:#13232a;
+    --ground:#3a5a40; --trunk:#43301f; --birch:#bdbaad; --stump:#55412b;
+    --leaf-spruce:#27583a; --leaf-pine:#2e6a4a; --leaf-birch:#5d8b3e;
+    --sun:#c3d3ff; --sun-intensity:.85; --hemi-sky:#2b4055; --hemi-ground:#223527; --hemi-intensity:.65;
+    --printer:#9aa2a7; --printer-dark:#1b2124; --tray:#7b8388; --paper:#f1f1ea; --led:#5df2a2; --ring:#7fd6a0;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0e1714; --fg:#e7eee8; --muted:#97a79c; --line:rgba(231,238,232,.14);
+  --panel:rgba(13,22,19,.74); --panel-strong:#13201b;
+  --accent:#7fd6a0; --accent-soft:rgba(127,214,160,.26); --accent-ink:#0b1a12; --warn:#f0a05a;
+  --sky-top:#07111c; --sky-bottom:#14252c; --fog:#13232a;
+  --ground:#3a5a40; --trunk:#43301f; --birch:#bdbaad; --stump:#55412b;
+  --leaf-spruce:#27583a; --leaf-pine:#2e6a4a; --leaf-birch:#5d8b3e;
+  --sun:#c3d3ff; --sun-intensity:.85; --hemi-sky:#2b4055; --hemi-ground:#223527; --hemi-intensity:.65;
+  --printer:#9aa2a7; --printer-dark:#1b2124; --tray:#7b8388; --paper:#f1f1ea; --led:#5df2a2; --ring:#7fd6a0;
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:14px;line-height:1.5;overflow:hidden;-webkit-font-smoothing:antialiased;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:0}
+
+.stage{position:fixed;inset:0;z-index:0;background:linear-gradient(180deg,var(--sky-top) 0%,var(--sky-bottom) 56%,var(--fog) 100%)}
+.stage canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+.stage canvas:active{cursor:grabbing}
+
+.panel{position:fixed;z-index:2;left:max(16px,env(safe-area-inset-left,0px));top:calc(16px + env(safe-area-inset-top,0px));max-height:calc(100% - 32px - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));width:min(400px,calc(100vw - 32px));overflow:auto;display:flex;flex-direction:column;gap:20px;padding:24px;background:var(--panel);backdrop-filter:blur(18px) saturate(1.3);-webkit-backdrop-filter:blur(18px) saturate(1.3);border:1px solid var(--line);border-radius:22px;box-shadow:0 24px 64px rgba(0,0,0,.16)}
+.panel::before{content:"";display:none;width:40px;height:4px;border-radius:99px;background:var(--line);margin:-6px auto 0}
+
+.eyebrow{font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:0 0 8px}
+h1{font-family:var(--font-display);font-size:36px;line-height:1;font-weight:800;margin:0;letter-spacing:-.025em;text-wrap:balance}
+.lede{margin:10px 0 0;color:var(--muted);max-width:36ch}
+
+.form{display:flex;flex-direction:column;gap:12px}
+.label{font-size:11px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+.field{display:flex;align-items:center;gap:10px;border:1px solid var(--line);background:var(--panel-strong);border-radius:14px;padding:4px 14px 4px 4px;transition:border-color .15s,box-shadow .15s}
+.field:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.field input{flex:1;min-width:0;width:100%;border:0;background:transparent;color:var(--fg);font:700 26px/1.2 var(--font-display);padding:8px 12px;outline:none;font-variant-numeric:tabular-nums;-moz-appearance:textfield;appearance:textfield}
+.field input::-webkit-outer-spin-button,.field input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.unit{color:var(--muted);font-weight:600;white-space:nowrap}
+.presets{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:999px;padding:6px 12px;font:600 12px/1.3 var(--font-body);cursor:pointer;font-variant-numeric:tabular-nums;transition:border-color .15s,color .15s}
+.chip:hover{border-color:var(--accent);color:var(--accent)}
+.chip:focus-visible,.btn-primary:focus-visible,.btn-ghost:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn-primary{position:relative;overflow:hidden;border:0;border-radius:14px;padding:14px 18px;background:var(--accent);color:var(--accent-ink);font:700 16px/1 var(--font-display);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:10px;transition:transform .15s,filter .15s}
+.btn-primary:hover{transform:translateY(-1px);filter:brightness(1.05)}
+.btn-primary svg{flex:none}
+.btn-progress{position:absolute;left:0;bottom:0;height:3px;width:0;background:var(--accent-ink);opacity:.55}
+.status{margin:0;min-height:1.5em;color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+.status.is-error{color:var(--warn)}
+
+.stats{display:flex;flex-direction:column;gap:16px;padding-top:18px;border-top:1px solid var(--line)}
+.stat{display:flex;flex-direction:column;gap:2px;min-width:0}
+.stat-label{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.stat-value{font-family:var(--font-display);font-weight:800;font-size:28px;line-height:1.05;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.stat-big .stat-value{font-size:46px}
+.stat-sub{font-size:12px;color:var(--muted)}
+.stat-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.stat-felled .stat-value{color:var(--warn)}
+.progress{display:flex;flex-direction:column;gap:6px}
+.progress-head{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums}
+.bar{height:6px;border-radius:99px;background:var(--line);overflow:hidden}
+.bar-fill{height:100%;width:0;background:var(--accent);border-radius:99px;transition:width .15s linear}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:0}
+.facts div{min-width:0}
+.facts dt{font-size:11px;color:var(--muted);font-weight:600}
+.facts dd{margin:0;font-weight:700;font-variant-numeric:tabular-nums;font-size:14px}
+.beyond{margin:0;padding:10px 12px;border-left:3px solid var(--warn);background:var(--panel-strong);border-radius:0 10px 10px 0;font-size:13px;color:var(--fg)}
+.note{margin:0;font-size:12px;color:var(--muted);line-height:1.55}
+.btn-ghost{border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:12px;padding:10px 14px;font:600 13px/1.2 var(--font-body);cursor:pointer;transition:border-color .15s,color .15s}
+.btn-ghost:hover{border-color:var(--accent);color:var(--accent)}
+
+.hud{position:fixed;z-index:2;top:calc(16px + env(safe-area-inset-top,0px));right:max(16px,env(safe-area-inset-right,0px));display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.hud-chip{display:flex;align-items:baseline;gap:6px;padding:8px 12px;border-radius:999px;background:var(--panel);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);font-size:12px;color:var(--muted);font-weight:600;white-space:nowrap}
+.hud-chip b{font-family:var(--font-display);font-size:16px;color:var(--fg);font-variant-numeric:tabular-nums}
+.legend{position:fixed;z-index:2;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 14px;border-radius:14px;background:var(--panel);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border:1px solid var(--line);font-size:12px;color:var(--muted);font-weight:600}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.legend-hint{padding-left:12px;border-left:1px solid var(--line);font-weight:500}
+
+@media (max-width:720px){
+  .panel{left:0;right:0;top:auto;bottom:0;width:auto;max-height:min(60%,calc(100% - 96px));border-radius:22px 22px 0 0;border-bottom:0;padding:14px max(16px,env(safe-area-inset-right,0px)) calc(18px + env(safe-area-inset-bottom,0px)) max(16px,env(safe-area-inset-left,0px));gap:14px}
+  .panel::before{display:block}
+  h1{font-size:28px}
+  .lede{display:none}
+  .stat-big .stat-value{font-size:36px}
+  .legend{display:none}
+}
+@media (prefers-reduced-motion: reduce){
+  .btn-primary,.chip,.btn-ghost,.field,.bar-fill{transition:none}
+}
+</style>
+</head>
+<body>
+<div class="stage" id="stage" aria-hidden="true"></div>
+
+<aside class="panel" aria-label="Steuerung">
+  <header>
+    <p class="eyebrow">Druck · Zellstoff · Wald</p>
+    <h1>Papierwald</h1>
+    <p class="lede">Jedes Blatt beginnt als Baum. Gib ein, wie viele Seiten du druckst, und schau zu, was im Wald passiert.</p>
+  </header>
+
+  <form id="printForm" class="form" novalidate>
+    <label class="label" for="pagesInput">Gedruckte Seiten</label>
+    <div class="field">
+      <input id="pagesInput" name="pages" type="number" inputmode="numeric" min="1" max="100000000" step="1" value="2500" autocomplete="off">
+      <span class="unit">Blatt A4</span>
+    </div>
+    <div class="presets" role="group" aria-label="Schnellauswahl">
+      <button type="button" class="chip" data-pages="500">1 Ries · 500</button>
+      <button type="button" class="chip" data-pages="2500">1 Karton · 2’500</button>
+      <button type="button" class="chip" data-pages="10000">1 Büroplatz / Jahr · 10’000</button>
+      <button type="button" class="chip" data-pages="1000000">100 Büroplätze / Jahr · 1 Mio.</button>
+    </div>
+    <button type="submit" id="printBtn" class="btn-primary">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>
+      <span id="btnLabel">Drucken</span>
+      <span class="btn-progress" id="btnBar"></span>
+    </button>
+    <p id="status" class="status" role="status" aria-live="polite">Drucker bereit.</p>
+  </form>
+
+  <section class="stats" aria-label="Auswirkung">
+    <div class="stat stat-big">
+      <span class="stat-label">Gesamt gedruckt</span>
+      <span class="stat-value" id="totalPages">0</span>
+      <span class="stat-sub">Blatt A4, 80 g/m²</span>
+    </div>
+    <div class="stat-row">
+      <div class="stat stat-felled">
+        <span class="stat-label">Bäume gefällt</span>
+        <span class="stat-value" id="treesFelled">0</span>
+        <span class="stat-sub">von 150 im Wald</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Wald übrig</span>
+        <span class="stat-value" id="forestLeft">100 %</span>
+        <span class="stat-sub"><span id="treesStanding">150</span> Bäume stehen</span>
+      </div>
+    </div>
+    <div class="progress">
+      <div class="progress-head"><span>Nächster Baum fällt</span><span id="nextTree">in 8’333 Blatt</span></div>
+      <div class="bar"><div class="bar-fill" id="barFill"></div></div>
+    </div>
+    <dl class="facts">
+      <div><dt>Papierstapel</dt><dd id="stackHeight">0 cm</dd></div>
+      <div><dt>Gewicht</dt><dd id="paperWeight">0 g</dd></div>
+      <div><dt>Ries à 500</dt><dd id="reams">0</dd></div>
+    </dl>
+  </section>
+
+  <p id="beyond" class="beyond" hidden></p>
+  <p class="note">Faustregel: ein ausgewachsener Baum liefert rund 8’333 Blatt A4 à 80 g/m², also etwa 17 Ries. Je nach Baumart, Alter und Verfahren schwankt der Wert stark; Recyclingfasern sind nicht berücksichtigt.</p>
+  <button type="button" id="resetBtn" class="btn-ghost">Wald aufforsten</button>
+</aside>
+
+<div class="hud">
+  <div class="hud-chip">Bäume stehen <b id="hudTrees">150</b></div>
+  <div class="hud-chip">Gedruckt <b id="hudPages">0</b></div>
+</div>
+<div class="legend">
+  <span><i style="background:var(--leaf-spruce)"></i>Fichte</span>
+  <span><i style="background:var(--leaf-pine)"></i>Kiefer</span>
+  <span><i style="background:var(--leaf-birch)"></i>Birke</span>
+  <span class="legend-hint">Ziehen: drehen · Scrollen: zoomen</span>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+'use strict';
+if(!window.THREE){document.getElementById('status').textContent='Die 3D-Bibliothek konnte nicht geladen werden. Bitte Seite neu laden.';return;}
+
+/* ---------- constants & helpers ---------- */
+const SHEETS_PER_TREE=8333, TREE_COUNT=150, LOC='de-CH', MAX_PAGES=100000000;
+const TYPE_NAME={spruce:'Fichte',pine:'Kiefer',birch:'Birke'};
+const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const fmt=n=>Math.round(n).toLocaleString(LOC);
+const fmt1=n=>n.toLocaleString(LOC,{maximumFractionDigits:1});
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+function fmtLen(sheets){const m=sheets*0.0001;return m<1?fmt1(m*100)+' cm':m<1000?fmt1(m)+' m':fmt1(m/1000)+' km';}
+function fmtMass(sheets){const kg=sheets*0.005;return kg<1?fmt1(kg*1000)+' g':kg<1000?fmt1(kg)+' kg':fmt1(kg/1000)+' t';}
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+const rnd=mulberry32(20261028);
+
+const $=id=>document.getElementById(id);
+const ui={input:$('pagesInput'),form:$('printForm'),btn:$('printBtn'),btnLabel:$('btnLabel'),btnBar:$('btnBar'),status:$('status'),
+  total:$('totalPages'),felled:$('treesFelled'),left:$('forestLeft'),standing:$('treesStanding'),next:$('nextTree'),bar:$('barFill'),
+  stack:$('stackHeight'),weight:$('paperWeight'),reams:$('reams'),hudTrees:$('hudTrees'),hudPages:$('hudPages'),reset:$('resetBtn'),beyond:$('beyond')};
+
+/* ---------- renderer, scene, lights ---------- */
+const stage=$('stage');
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,powerPreference:'high-performance'});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+renderer.outputEncoding=THREE.sRGBEncoding;
+renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+stage.appendChild(renderer.domElement);
+
+const scene=new THREE.Scene();
+scene.fog=new THREE.Fog(0xffffff,20,66);
+const camera=new THREE.PerspectiveCamera(42,1,.1,240);
+const hemi=new THREE.HemisphereLight(0xffffff,0x446644,.6);scene.add(hemi);
+const sun=new THREE.DirectionalLight(0xffffff,1);
+sun.position.set(18,32,12);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);
+const sc=sun.shadow.camera;sc.left=-44;sc.right=44;sc.top=44;sc.bottom=-44;sc.near=1;sc.far=130;
+sun.shadow.bias=-0.0005;sun.shadow.normalBias=0.04;
+sun.target.position.set(0,0,-14);scene.add(sun);scene.add(sun.target);
+
+/* ---------- materials, themed from the CSS tokens ---------- */
+function sheetTexture(){
+  const c=document.createElement('canvas');c.width=128;c.height=180;const x=c.getContext('2d');
+  x.fillStyle='#fbfbf6';x.fillRect(0,0,128,180);
+  x.fillStyle='#8f9a8f';x.fillRect(16,24,62,5);
+  x.fillStyle='#bcc1b9';for(let i=1;i<12;i++){x.fillRect(16,26+i*11,54+((i*37)%52),3);}
+  const t=new THREE.CanvasTexture(c);t.encoding=THREE.sRGBEncoding;return t;
+}
+const mat=o=>new THREE.MeshStandardMaterial(Object.assign({flatShading:true,roughness:.95,metalness:0},o));
+const M={
+  ground:mat({}),trunk:mat({}),birch:mat({}),stump:mat({}),spruce:mat({}),pine:mat({}),birchLeaf:mat({}),dust:mat({}),
+  printer:mat({flatShading:false,roughness:.55}),printerDark:mat({flatShading:false,roughness:.5}),tray:mat({flatShading:false,roughness:.7}),
+  paper:mat({flatShading:false,roughness:1}),
+  screen:mat({flatShading:false,roughness:.3,emissive:new THREE.Color(0x000000),emissiveIntensity:0}),
+  led:mat({flatShading:false,emissive:new THREE.Color(0x00ff00),emissiveIntensity:.3}),
+  sheet:new THREE.MeshStandardMaterial({map:sheetTexture(),side:THREE.DoubleSide,roughness:1}),
+  ring:new THREE.MeshBasicMaterial({transparent:true,opacity:.5,side:THREE.DoubleSide,depthWrite:false})
+};
+const css=getComputedStyle(document.documentElement);
+const tok=n=>css.getPropertyValue(n).trim();
+const setC=(c,n)=>{const v=tok(n);if(v)c.set(v).convertSRGBToLinear();};
+function applyTheme(){
+  setC(M.ground.color,'--ground');setC(M.trunk.color,'--trunk');setC(M.birch.color,'--birch');setC(M.stump.color,'--stump');setC(M.dust.color,'--stump');
+  setC(M.spruce.color,'--leaf-spruce');setC(M.pine.color,'--leaf-pine');setC(M.birchLeaf.color,'--leaf-birch');
+  setC(M.printer.color,'--printer');setC(M.printerDark.color,'--printer-dark');setC(M.tray.color,'--tray');setC(M.paper.color,'--paper');
+  setC(M.led.color,'--led');setC(M.led.emissive,'--led');setC(M.screen.color,'--printer-dark');setC(M.screen.emissive,'--led');setC(M.ring.color,'--ring');
+  setC(scene.fog.color,'--fog');setC(sun.color,'--sun');sun.intensity=parseFloat(tok('--sun-intensity'))||1;
+  setC(hemi.color,'--hemi-sky');setC(hemi.groundColor,'--hemi-ground');hemi.intensity=parseFloat(tok('--hemi-intensity'))||.5;
+}
+applyTheme();
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);
+new MutationObserver(applyTheme).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+
+/* ---------- ground ---------- */
+function groundH(x,z){
+  const d=Math.hypot(x,z-3);const flat=clamp((d-6)/8,0,1);
+  return flat*(Math.sin(x*.33)*.28+Math.cos(z*.29+1.2)*.3+Math.sin((x+z)*.11)*.45);
+}
+{
+  const g=new THREE.PlaneGeometry(240,240,96,96);const p=g.attributes.position;
+  for(let i=0;i<p.count;i++){p.setZ(i,groundH(p.getX(i),-p.getY(i)));}
+  g.computeVertexNormals();
+  const ground=new THREE.Mesh(g,M.ground);ground.rotation.x=-Math.PI/2;ground.receiveShadow=true;scene.add(ground);
+}
+
+/* ---------- trees ---------- */
+const G={trunk:new THREE.CylinderGeometry(.11,.19,1,7),cone:new THREE.ConeGeometry(1,1,8),blob:new THREE.IcosahedronGeometry(1,0),
+  sphere:new THREE.IcosahedronGeometry(1,1),stump:new THREE.CylinderGeometry(.2,.27,.36,8),ring:new THREE.RingGeometry(.9,1.15,36),dust:new THREE.IcosahedronGeometry(.1,0)};
+function part(geo,m,x,y,z,sx,sy,sz){const o=new THREE.Mesh(geo,m);o.position.set(x,y,z);o.scale.set(sx||1,sy||1,sz||1);o.castShadow=true;o.receiveShadow=true;return o;}
+function makeTree(type){
+  const g=new THREE.Group();
+  if(type==='spruce'){
+    g.add(part(G.trunk,M.trunk,0,.7,0,1,1.4,1));
+    g.add(part(G.cone,M.spruce,0,1.75,0,1.35,1.9,1.35));g.add(part(G.cone,M.spruce,0,2.75,0,1,1.7,1));g.add(part(G.cone,M.spruce,0,3.65,0,.62,1.4,.62));
+  }else if(type==='pine'){
+    g.add(part(G.trunk,M.trunk,0,1.5,0,1,3,1));
+    g.add(part(G.blob,M.pine,0,3.35,0,1,.8,1));g.add(part(G.blob,M.pine,.55,3,.3,.75,.6,.75));g.add(part(G.blob,M.pine,-.5,3.2,-.25,.7,.55,.7));
+  }else{
+    g.add(part(G.trunk,M.birch,0,1.3,0,.8,2.6,.8));
+    g.add(part(G.sphere,M.birchLeaf,0,3.05,0,1.05,1.3,1.05));g.add(part(G.sphere,M.birchLeaf,.45,2.5,.2,.6,.6,.6));
+  }
+  return g;
+}
+const trees=[];
+{
+  const COLS=15,ROWS=10,SX=3.3,SZ=3.2;
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    const x=(c-(COLS-1)/2)*SX+(rnd()-.5)*1.7, z=-5.5-r*SZ+(rnd()-.5)*1.7;
+    const u=rnd();const type=u<.45?'spruce':u<.75?'pine':'birch';
+    const pivot=new THREE.Group();const y0=groundH(x,z);pivot.position.set(x,y0,z);pivot.rotation.y=rnd()*Math.PI*2;
+    const tree=makeTree(type);const s=.8+rnd()*.5;tree.scale.setScalar(s);pivot.add(tree);scene.add(pivot);
+    trees.push({pivot,tree,type,x,z,y0,s,state:'standing',t:0,hit:false,order:z+(rnd()-.5)*3});
+  }
+  trees.sort((a,b)=>b.order-a.order); // nearest to the printer falls first
+}
+const stumps=[];
+function addStump(tr){const m=part(G.stump,M.stump,tr.x,tr.y0+.17*tr.s,tr.z,tr.s,tr.s,tr.s);scene.add(m);stumps.push(m);}
+
+/* next-tree marker */
+const ring=new THREE.Mesh(G.ring,M.ring);ring.rotation.x=-Math.PI/2;scene.add(ring);
+
+/* dust */
+const dust=[];
+for(let i=0;i<40;i++){const m=new THREE.Mesh(G.dust,M.dust);m.visible=false;scene.add(m);dust.push({m,v:new THREE.Vector3(),life:0});}
+function puff(tr){
+  let n=9;
+  for(const d of dust){if(d.life>0)continue;d.life=.9;d.m.visible=true;d.m.position.set(tr.x,tr.y0+.25,tr.z);
+    d.v.set((Math.random()-.5)*4.5,2+Math.random()*2.5,(Math.random()-.5)*4.5);d.m.scale.setScalar(.7+Math.random()*.9);if(--n<=0)break;}
+}
+
+/* ---------- printer ---------- */
+const printer=(function(){
+  const g=new THREE.Group();g.position.set(0,groundH(0,3),3);
+  const box=(parent,w,h,d,m,x,y,z)=>{const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);o.position.set(x,y,z);o.castShadow=true;o.receiveShadow=true;parent.add(o);return o;};
+  box(g,3.6,.22,2.9,M.stump,0,.11,.15);                       // wooden plinth
+  const body=new THREE.Group();body.position.y=.22;g.add(body);
+  box(body,2.6,.95,1.9,M.printer,0,.475,0);                    // housing
+  box(body,2.4,.12,1.25,M.printerDark,0,1.01,-.12);            // lid
+  box(body,.95,.07,.56,M.printerDark,.68,1.03,.5);             // control panel
+  const screen=box(body,.5,.02,.3,M.screen,.6,1.075,.5);
+  const led=box(body,.09,.03,.09,M.led,1.0,1.075,.62);
+  const inTray=new THREE.Group();inTray.position.set(0,1.3,-.95);inTray.rotation.x=-.55;body.add(inTray);
+  box(inTray,1.5,.05,1.15,M.tray,0,0,0);box(inTray,1.05,.16,1.05,M.paper,0,.1,.02);
+  box(body,1.7,.14,.1,M.printerDark,0,.62,.95);                // output slot
+  const roller=new THREE.Mesh(new THREE.CylinderGeometry(.05,.05,1.5,10),M.printerDark);roller.rotation.z=Math.PI/2;roller.position.set(0,.55,.99);body.add(roller);
+  box(body,1.9,.05,1.5,M.tray,0,.42,1.55);                     // output tray
+  const stack=new THREE.Mesh(new THREE.BoxGeometry(1,1,1.41),M.paper);stack.castShadow=true;stack.position.set(0,.45,1.62);stack.scale.y=.001;body.add(stack);
+  scene.add(g);
+  return {g,body,screen,led,roller,stack,slot:new THREE.Vector3(0,.67,1.0),trayEnd:new THREE.Vector3(0,.46,1.62)};
+})();
+const sheets=[];
+{
+  const geo=new THREE.PlaneGeometry(1,1.41);
+  for(let i=0;i<10;i++){const m=new THREE.Mesh(geo,M.sheet);m.visible=false;m.castShadow=true;m.rotation.x=-Math.PI/2;printer.body.add(m);sheets.push({m,t:0,active:false,x:0});}
+}
+function spawnSheet(){const s=sheets.find(s=>!s.active);if(!s)return;s.active=true;s.t=0;s.x=(Math.random()-.5)*.08;s.m.visible=true;}
+let stackH=0;
+function stackHeightFor(n){return n>0?Math.min(1.05,.02+.15*Math.log10(1+n)):0;}
+
+/* ---------- state ---------- */
+let total=0, displayed=0, assigned=0, job=null, time=0;
+const fellQueue=[];let fellTimer=0;
+let flash=null;
+let dirty=true;
+
+function durationFor(n){return reduceMotion?.5:clamp(1.2+Math.log10(n+1)*1.15,1.5,8);}
+function startPrint(n){
+  total+=n;
+  const from=displayed,d=durationFor(total-from);
+  job={from,to:total,t:0,d,planned:Math.min(total-from,Math.round(d*7)),emitted:0,a0:assigned};
+  ui.btnLabel.textContent='Druckt …';
+  ui.status.classList.remove('is-error');
+  dirty=true;
+}
+function setFlash(msg,secs){flash={msg,until:time+(secs||1.4)};dirty=true;}
+function fell(tr){
+  tr.state='falling';tr.t=0;tr.hit=false;tr.pivot.rotation.y=Math.random()*Math.PI*2;
+  const idx=trees.indexOf(tr)+1;
+  setFlash('Baum '+idx+' gefällt – eine '+TYPE_NAME[tr.type]+'.',1.6);
+}
+function fellInstant(tr){tr.state='gone';scene.remove(tr.pivot);addStump(tr);}
+function applyTotalInstant(n){
+  total=n;displayed=n;assigned=Math.min(TREE_COUNT,Math.floor(n/SHEETS_PER_TREE));
+  for(let i=0;i<assigned;i++)fellInstant(trees[i]);
+  dirty=true;
+}
+function resetForest(){
+  job=null;fellQueue.length=0;total=0;displayed=0;assigned=0;flash=null;
+  for(const tr of trees){
+    if(tr.state==='standing')continue;
+    if(tr.state==='gone')scene.add(tr.pivot);
+    tr.state='standing';tr.t=0;tr.hit=false;tr.tree.rotation.z=0;tr.tree.scale.setScalar(tr.s);tr.pivot.position.y=tr.y0;
+  }
+  for(const s of stumps)scene.remove(s);stumps.length=0;
+  for(const s of sheets){s.active=false;s.m.visible=false;}
+  ui.btnLabel.textContent='Drucken';ui.btnBar.style.width='0';
+  ui.status.textContent='Wald aufgeforstet. Drucker bereit.';ui.status.classList.remove('is-error');
+  dirty=true;
+}
+
+/* ---------- UI ---------- */
+function renderUI(){
+  const standing=TREE_COUNT-assigned;
+  ui.total.textContent=fmt(displayed);
+  ui.felled.textContent=fmt(assigned);
+  ui.left.textContent=Math.round(standing/TREE_COUNT*100)+' %';
+  ui.standing.textContent=fmt(standing);
+  const rem=SHEETS_PER_TREE-(Math.floor(displayed)%SHEETS_PER_TREE);
+  if(assigned>=TREE_COUNT){ui.next.textContent='Wald abgeholzt';ui.bar.style.width='100%';}
+  else{ui.next.textContent='in '+fmt(rem)+' Blatt';ui.bar.style.width=((SHEETS_PER_TREE-rem)/SHEETS_PER_TREE*100).toFixed(1)+'%';}
+  ui.stack.textContent=fmtLen(displayed);ui.weight.textContent=fmtMass(displayed);ui.reams.textContent=fmt1(displayed/500);
+  ui.hudTrees.textContent=fmt(standing);ui.hudPages.textContent=fmt(displayed);
+  const forests=total/(TREE_COUNT*SHEETS_PER_TREE);
+  if(forests>=1){ui.beyond.hidden=false;ui.beyond.textContent='Dieser Wald reicht nicht: '+fmt(total)+' Blatt entsprechen '+fmt(Math.ceil(total/SHEETS_PER_TREE))+' Bäumen, also '+fmt1(forests)+' Wäldern dieser Grösse.';}
+  else ui.beyond.hidden=true;
+  if(flash&&time<flash.until)ui.status.textContent=flash.msg;
+  else if(job){ui.status.textContent='Druckt Blatt '+fmt(displayed-job.from)+' von '+fmt(job.to-job.from)+' …';}
+  else if(flash){flash=null;}
+}
+function finishJob(){
+  const n=job.to-job.from,k=assigned-job.a0,rem=SHEETS_PER_TREE-(Math.floor(displayed)%SHEETS_PER_TREE);
+  let msg=fmt(n)+' Blatt gedruckt. ';
+  if(assigned>=TREE_COUNT)msg+='Der Wald ist vollständig abgeholzt.';
+  else msg+=(k===0?'Kein Baum gefällt':k===1?'1 Baum gefällt':fmt(k)+' Bäume gefällt')+' – der nächste fällt in '+fmt(rem)+' Blatt.';
+  job=null;flash=null;ui.status.textContent=msg;ui.btnLabel.textContent='Drucken';ui.btnBar.style.width='0';dirty=true;
+}
+
+ui.form.addEventListener('submit',e=>{
+  e.preventDefault();
+  const n=Math.floor(Number(ui.input.value));
+  if(!Number.isFinite(n)||n<1){ui.status.textContent='Bitte eine ganze Zahl ab 1 eingeben.';ui.status.classList.add('is-error');ui.input.focus();return;}
+  startPrint(Math.min(n,MAX_PAGES));
+});
+for(const chip of document.querySelectorAll('.chip')){
+  chip.addEventListener('click',()=>{const n=Number(chip.dataset.pages);ui.input.value=String(n);startPrint(n);});
+}
+ui.reset.addEventListener('click',resetForest);
+
+/* ---------- camera ---------- */
+const cam={theta:0,phi:1.12,r:24,rBase:24,auto:0,target:new THREE.Vector3(0,1.2,-7),lastInteract:-10,zoomed:false};
+function placeCamera(){
+  const th=cam.theta+cam.auto,ph=cam.phi,t=cam.target;
+  camera.position.set(t.x+cam.r*Math.sin(ph)*Math.sin(th),t.y+cam.r*Math.cos(ph),t.z+cam.r*Math.sin(ph)*Math.cos(th));
+  camera.lookAt(t);
+}
+{
+  const el=renderer.domElement,pts=new Map();let lastPinch=0;
+  el.addEventListener('pointerdown',e=>{el.setPointerCapture(e.pointerId);pts.set(e.pointerId,{x:e.clientX,y:e.clientY});cam.lastInteract=time;});
+  el.addEventListener('pointermove',e=>{
+    const p=pts.get(e.pointerId);if(!p)return;
+    const dx=e.clientX-p.x,dy=e.clientY-p.y;p.x=e.clientX;p.y=e.clientY;cam.lastInteract=time;
+    if(pts.size===1){cam.theta-=dx*.005;cam.phi=clamp(cam.phi-dy*.004,.72,1.42);}
+    else if(pts.size===2){const [a,b]=[...pts.values()];const d=Math.hypot(a.x-b.x,a.y-b.y);if(lastPinch>0){cam.r=clamp(cam.r*(lastPinch/d),12,44);cam.zoomed=true;}lastPinch=d;}
+  });
+  const up=e=>{pts.delete(e.pointerId);if(pts.size<2)lastPinch=0;};
+  el.addEventListener('pointerup',up);el.addEventListener('pointercancel',up);
+  el.addEventListener('wheel',e=>{e.preventDefault();cam.r=clamp(cam.r+e.deltaY*.02,12,44);cam.zoomed=true;cam.lastInteract=time;},{passive:false});
+}
+function resize(){
+  const w=stage.clientWidth||window.innerWidth,h=stage.clientHeight||window.innerHeight;
+  renderer.setSize(w,h,false);camera.aspect=w/h;
+  const narrow=w<721;
+  camera.fov=narrow?52:42;cam.target.set(narrow?0:-2.4,narrow?-3.4:1.2,-7);cam.rBase=narrow?30:24;
+  if(!cam.zoomed)cam.r=cam.rBase;
+  camera.updateProjectionMatrix();
+}
+new ResizeObserver(resize).observe(stage);resize();
+
+/* ---------- animation loop ---------- */
+function update(dt){
+  time+=dt;
+  /* print job */
+  if(job){
+    job.t+=dt;const p=Math.min(1,job.t/job.d);const e=p<.5?4*p*p*p:1-Math.pow(-2*p+2,3)/2;
+    displayed=job.from+(job.to-job.from)*e;
+    const due=Math.floor(p*job.planned);while(job.emitted<due){spawnSheet();job.emitted++;}
+    ui.btnBar.style.width=(p*100).toFixed(1)+'%';
+    dirty=true;
+    if(p>=1){displayed=job.to;}
+  }
+  /* trees owed by the running count */
+  const should=Math.min(TREE_COUNT,Math.floor(displayed/SHEETS_PER_TREE));
+  while(assigned<should){const tr=trees[assigned++];tr.state='queued';fellQueue.push(tr);dirty=true;}
+  if(job&&job.t>=job.d)finishJob();
+  fellTimer-=dt;
+  if(fellQueue.length&&fellTimer<=0){fell(fellQueue.shift());fellTimer=reduceMotion?.02:clamp(2.2/(fellQueue.length+1),.06,.4);}
+  /* falling trees */
+  const speed=reduceMotion?3:1;
+  for(const tr of trees){
+    if(tr.state!=='falling')continue;
+    tr.t+=dt*speed;const T=tr.t,lean=Math.PI/2-.06;
+    if(T<.95){const q=T/.95;tr.tree.rotation.z=-lean*q*q*q;}
+    else{
+      if(!tr.hit){tr.hit=true;if(!reduceMotion)puff(tr);addStump(tr);}
+      tr.tree.rotation.z=-lean;
+      if(T>1.45){const q=Math.min(1,(T-1.45)/.9);tr.pivot.position.y=tr.y0-q*1.8;tr.tree.scale.setScalar(tr.s*(1-q*.5));
+        if(q>=1){scene.remove(tr.pivot);tr.state='gone';}}
+    }
+  }
+  /* dust */
+  for(const d of dust){if(d.life<=0)continue;d.life-=dt;d.v.y-=9*dt;d.m.position.addScaledVector(d.v,dt);d.m.scale.multiplyScalar(Math.max(0,1-dt*1.4));if(d.life<=0)d.m.visible=false;}
+  /* next-tree marker */
+  const next=trees.find(t=>t.state==='standing');
+  if(next){ring.visible=true;ring.position.set(next.x,next.y0+.03,next.z);const k=1+Math.sin(time*3)*.07;ring.scale.set(k*next.s,k*next.s,1);M.ring.opacity=.42+Math.sin(time*3)*.18;}
+  else ring.visible=false;
+  /* printer */
+  const printing=!!job;
+  const targetH=stackHeightFor(displayed);stackH+=(targetH-stackH)*Math.min(1,dt*6);
+  printer.stack.scale.y=Math.max(.001,stackH);printer.stack.position.y=.45+stackH/2;
+  printer.body.position.y=.22+(printing&&!reduceMotion?Math.sin(time*70)*.004:0);
+  if(printing)printer.roller.rotation.x+=dt*9;
+  M.screen.emissiveIntensity=printing?.9:.25;
+  M.led.emissiveIntensity=printing?(Math.sin(time*12)>0?1.2:.15):.6;
+  for(const s of sheets){
+    if(!s.active)continue;
+    s.t+=dt/(reduceMotion?.25:.6);const p=Math.min(1,s.t),e=1-Math.pow(1-p,2);
+    const top=printer.trayEnd.y+stackH+.012;
+    s.m.position.set(s.x,printer.slot.y+(top-printer.slot.y)*e,printer.slot.z+(printer.trayEnd.z-printer.slot.z)*e);
+    s.m.rotation.x=-Math.PI/2+(1-e)*.3;
+    if(p>=1){s.active=false;s.m.visible=false;}
+  }
+  /* camera */
+  if(!reduceMotion&&time-cam.lastInteract>5)cam.auto+=dt*.035*Math.sin(time*.09);
+  placeCamera();
+  if(dirty){renderUI();dirty=!!job;}
+}
+let last=0;
+function frame(now){
+  const dt=Math.min(.05,(now-(last||now))/1000);last=now;
+  update(dt);renderer.render(scene,camera);requestAnimationFrame(frame);
+}
+
+/* ---------- boot ---------- */
+renderUI();placeCamera();requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
